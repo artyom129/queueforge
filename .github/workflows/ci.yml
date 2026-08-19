@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: queueforge_test
+          POSTGRES_USER: queueforge
+          POSTGRES_PASSWORD: queueforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U queueforge -d queueforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      QUEUEFORGE_DATABASE_URL: postgresql+asyncpg://queueforge:queueforge@localhost:5432/queueforge_test
+      QUEUEFORGE_REDIS_URL: redis://localhost:6379/15
+      QUEUEFORGE_RETRY_JITTER_RATIO: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: |
+          ruff check .
+      - name: Migrate test database
+        run: alembic upgrade head
+      - name: Tests with coverage
+        run: pytest --cov=app --cov-report=term-missing --cov-report=xml
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml

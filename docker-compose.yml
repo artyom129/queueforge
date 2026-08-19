@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: queueforge
+      POSTGRES_USER: queueforge
+      POSTGRES_PASSWORD: queueforge
+    ports:
+      - "5432:5432"
+    volumes:
+      - queueforge-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queueforge -d queueforge"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - queueforge-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment: &queueforge-env
+      QUEUEFORGE_DATABASE_URL: postgresql+asyncpg://queueforge:queueforge@postgres:5432/queueforge
+      QUEUEFORGE_REDIS_URL: redis://redis:6379/0
+      QUEUEFORGE_LOG_LEVEL: ${QUEUEFORGE_LOG_LEVEL:-INFO}
+      QUEUEFORGE_API_KEY: ${QUEUEFORGE_API_KEY:-}
+      QUEUEFORGE_RETRY_BASE_DELAY_SECONDS: ${QUEUEFORGE_RETRY_BASE_DELAY_SECONDS:-1}
+      QUEUEFORGE_RETRY_MAX_DELAY_SECONDS: ${QUEUEFORGE_RETRY_MAX_DELAY_SECONDS:-60}
+      QUEUEFORGE_RETRY_JITTER_RATIO: ${QUEUEFORGE_RETRY_JITTER_RATIO:-0.10}
+      QUEUEFORGE_WORKER_HEARTBEAT_INTERVAL_SECONDS: ${QUEUEFORGE_WORKER_HEARTBEAT_INTERVAL_SECONDS:-5}
+      QUEUEFORGE_WORKER_HEARTBEAT_TTL_SECONDS: ${QUEUEFORGE_WORKER_HEARTBEAT_TTL_SECONDS:-20}
+      QUEUEFORGE_WORKER_LOST_AFTER_SECONDS: ${QUEUEFORGE_WORKER_LOST_AFTER_SECONDS:-30}
+      QUEUEFORGE_REAPER_INTERVAL_SECONDS: ${QUEUEFORGE_REAPER_INTERVAL_SECONDS:-10}
+      QUEUEFORGE_SCHEDULER_POLL_INTERVAL_SECONDS: ${QUEUEFORGE_SCHEDULER_POLL_INTERVAL_SECONDS:-0.5}
+      QUEUEFORGE_RECONCILIATION_INTERVAL_SECONDS: ${QUEUEFORGE_RECONCILIATION_INTERVAL_SECONDS:-10}
+      QUEUEFORGE_OUTBOX_POLL_INTERVAL_SECONDS: ${QUEUEFORGE_OUTBOX_POLL_INTERVAL_SECONDS:-0.5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *queueforge-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  outbox:
+    build: .
+    command: ["python", "-m", "app.queue.outbox"]
+    environment: *queueforge-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  scheduler:
+    build: .
+    command: ["python", "-m", "app.scheduler.scheduler"]
+    environment: *queueforge-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.workers.worker"]
+    environment:
+      <<: *queueforge-env
+      QUEUEFORGE_WORKER_QUEUES: critical,default,low
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    stop_grace_period: 30s
+
+volumes:
+  queueforge-postgres:
+  queueforge-redis:
