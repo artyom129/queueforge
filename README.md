@@ -1,10 +1,23 @@
 # QueueForge
 
-**Reliable distributed background job processing platform for Python applications.**
+**Reliable distributed background job platform for Python applications.**
 
-QueueForge is a production-oriented portfolio project that implements a background-job system directly on top of **PostgreSQL + Redis**, without Celery, RQ, Dramatiq, or another full job framework.
+FastAPI • PostgreSQL • Redis • Workers • Retries • DLQ • Idempotency
 
-The interesting part is not the REST CRUD. The project focuses on delivery semantics, concurrency, state transitions, retry behavior, graceful workers, scheduling, idempotency, observability, and failure recovery.
+QueueForge demonstrates production-style background job processing with transactional outbox delivery, race-safe idempotency, worker recovery, scheduling, retries, cancellation, timeouts and observability.
+
+### Highlights
+
+- Transactional outbox
+- At-least-once delivery
+- Race-safe idempotency
+- Row-level worker claims
+- Retries with exponential backoff
+- Dead Letter Queue
+- Scheduled jobs
+- Worker heartbeats and stale-worker recovery
+- Prometheus metrics
+- Docker Compose, CI and integration tests
 
 ## Why this project exists
 
