@@ -1,3 +1,5 @@
+**English** | [Русский](README_RU.md)
+
 # QueueForge
 
 **Reliable distributed background job platform for Python applications.**
